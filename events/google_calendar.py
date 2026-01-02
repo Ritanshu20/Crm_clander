@@ -3,6 +3,7 @@ Google Calendar API integration module.
 Handles OAuth authentication and calendar operations.
 """
 import os
+import logging
 from datetime import datetime
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -11,6 +12,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from django.conf import settings
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 class GoogleCalendarService:
@@ -37,6 +40,7 @@ class GoogleCalendarService:
         """
         Authenticate with Google Calendar API using OAuth 2.0.
         Uses credentials.json for initial auth and token.json for refresh.
+        Automatically refreshes expired tokens without requiring user login.
         """
         creds = None
         token_file = settings.GOOGLE_TOKEN_FILE
@@ -44,29 +48,64 @@ class GoogleCalendarService:
         
         # Check if token.json exists (user has already authenticated)
         if os.path.exists(token_file):
-            creds = Credentials.from_authorized_user_file(token_file, self.SCOPES)
+            try:
+                creds = Credentials.from_authorized_user_file(token_file, self.SCOPES)
+            except Exception as e:
+                # If token file is corrupted, we'll need to re-authenticate
+                logger.warning(f"Error loading token file: {e}")
+                creds = None
+        
+        # If credentials exist but are expired, try to refresh automatically
+        if creds and creds.expired and creds.refresh_token:
+            try:
+                # Automatically refresh the token without user interaction
+                creds.refresh(Request())
+                # Save the refreshed token immediately
+                with open(token_file, 'w') as token:
+                    token.write(creds.to_json())
+                logger.info("Token refreshed automatically")
+            except Exception as e:
+                # If refresh fails, we need to re-authenticate
+                logger.warning(f"Token refresh failed: {e}. Re-authentication required.")
+                creds = None
         
         # If there are no (valid) credentials available, let the user log in
         if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                if not os.path.exists(credentials_file):
-                    raise FileNotFoundError(
-                        f"credentials.json not found at {credentials_file}. "
-                        "Please download it from Google Cloud Console."
-                    )
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    credentials_file, self.SCOPES
+            if not os.path.exists(credentials_file):
+                raise FileNotFoundError(
+                    f"Credentials file not found at {credentials_file}. "
+                    "Please download it from Google Cloud Console."
                 )
-                creds = flow.run_local_server(port=0)
+            
+            # Only prompt for login if we don't have valid credentials
+            flow = InstalledAppFlow.from_client_secrets_file(
+                credentials_file, self.SCOPES
+            )
+            creds = flow.run_local_server(port=0)
             
             # Save the credentials for the next run
             with open(token_file, 'w') as token:
                 token.write(creds.to_json())
+            logger.info("New credentials saved")
         
         self.credentials = creds
         self.service = build('calendar', 'v3', credentials=creds)
+    
+    def _ensure_valid_credentials(self):
+        """
+        Ensure credentials are valid, refresh if needed.
+        This is called before API operations to prevent authentication errors.
+        """
+        if self.credentials and self.credentials.expired and self.credentials.refresh_token:
+            try:
+                self.credentials.refresh(Request())
+                # Save refreshed token
+                with open(settings.GOOGLE_TOKEN_FILE, 'w') as token:
+                    token.write(self.credentials.to_json())
+            except Exception as e:
+                # If refresh fails, re-authenticate
+                logger.warning(f"Token refresh failed during operation: {e}. Re-authenticating...")
+                self._authenticate()
     
     def create_event(self, event):
         """
@@ -78,6 +117,9 @@ class GoogleCalendarService:
         Returns:
             str: Google Calendar event ID
         """
+        # Ensure credentials are valid before API call
+        self._ensure_valid_credentials()
+        
         try:
             # Convert Django datetime to RFC3339 format for Google Calendar
             start_time = event.start_datetime.isoformat()
@@ -118,6 +160,9 @@ class GoogleCalendarService:
         if not event.google_event_id:
             raise ValueError("Event does not have a Google Calendar event ID")
         
+        # Ensure credentials are valid before API call
+        self._ensure_valid_credentials()
+        
         try:
             # Convert Django datetime to RFC3339 format
             start_time = event.start_datetime.isoformat()
@@ -154,6 +199,9 @@ class GoogleCalendarService:
         Args:
             google_event_id: Google Calendar event ID
         """
+        # Ensure credentials are valid before API call
+        self._ensure_valid_credentials()
+        
         try:
             self.service.events().delete(
                 calendarId='primary',
