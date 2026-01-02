@@ -1,0 +1,247 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - CRM Event Calendar{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12 mb-4">
+        <h2><i class="bi bi-speedometer2"></i> Dashboard</h2>
+        <p class="text-muted">Welcome back, {{ user.username }}! Here's your event overview.</p>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Today's Events -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-calendar-day"></i> Today's Events
+            </div>
+            <div class="card-body">
+                {% if todays_events %}
+                    {% for event in todays_events %}
+                        <div class="event-item">
+                            <h5>{{ event.title }}</h5>
+                            <p class="text-muted mb-1">
+                                <i class="bi bi-clock"></i> 
+                                {{ event.start_datetime|date:"H:i" }} - {{ event.end_datetime|date:"H:i" }}
+                            </p>
+                            {% if event.description %}
+                                <p class="mb-2">{{ event.description|truncatewords:20 }}</p>
+                            {% endif %}
+                            <div class="d-flex gap-2">
+                                <a href="{% url 'event_detail' event.pk %}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye"></i> View
+                                </a>
+                                <a href="{% url 'event_update' event.pk %}" class="btn btn-sm btn-outline-secondary">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">No events scheduled for today.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Upcoming Events -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-calendar-week"></i> Upcoming Events
+            </div>
+            <div class="card-body">
+                {% if upcoming_events %}
+                    {% for event in upcoming_events %}
+                        <div class="event-item">
+                            <h5>{{ event.title }}</h5>
+                            <p class="text-muted mb-1">
+                                <i class="bi bi-calendar3"></i> 
+                                {{ event.start_datetime|date:"M d, Y" }} at {{ event.start_datetime|date:"H:i" }}
+                            </p>
+                            {% if event.description %}
+                                <p class="mb-2">{{ event.description|truncatewords:15 }}</p>
+                            {% endif %}
+                            <div class="d-flex gap-2">
+                                <a href="{% url 'event_detail' event.pk %}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye"></i> View
+                                </a>
+                                <a href="{% url 'event_update' event.pk %}" class="btn btn-sm btn-outline-secondary">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">No upcoming events.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pending Reminders -->
+{% if pending_reminders %}
+<div class="row mt-3">
+    <div class="col-12">
+        <div class="card border-warning">
+            <div class="card-header bg-warning text-dark">
+                <i class="bi bi-bell"></i> Pending Reminders
+            </div>
+            <div class="card-body">
+                <p class="text-muted">You have {{ pending_reminders|length }} reminder(s) that need attention.</p>
+                <ul class="list-group">
+                    {% for event in pending_reminders %}
+                        <li class="list-group-item">
+                            <strong>{{ event.title }}</strong> - 
+                            Reminder: {{ event.get_reminder_minutes_display }}
+                            <span class="badge badge-reminder ms-2">Pending</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Quick Actions -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body text-center">
+                <a href="{% url 'event_create' %}" class="btn btn-primary btn-lg me-2">
+                    <i class="bi bi-plus-circle"></i> Create New Event
+                </a>
+                <a href="{% url 'calendar' %}" class="btn btn-outline-primary btn-lg">
+                    <i class="bi bi-calendar3"></i> View Calendar
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // CRM-style reminder popup system
+    // This triggers browser alerts when reminders are due
+    
+    const pendingReminders = [
+        {% for event in pending_reminders %}
+        {
+            id: {{ event.id }},
+            title: "{{ event.title|escapejs }}",
+            startTime: "{{ event.start_datetime.isoformat }}",  // ISO 8601 format
+            reminderMinutes: {{ event.reminder_minutes }},
+            description: "{{ event.description|default:''|escapejs }}"
+        }{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    // Get CSRF token from cookies
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    function triggerReminder(event) {
+        // Parse datetime string - handle both ISO format and custom format
+        let eventStartTime;
+        try {
+            // Try parsing as ISO format first
+            eventStartTime = new Date(event.startTime);
+            // If invalid, try parsing with explicit format
+            if (isNaN(eventStartTime.getTime())) {
+                // Fallback: parse manually if needed
+                const parts = event.startTime.split('T');
+                if (parts.length === 2) {
+                    const datePart = parts[0].split('-');
+                    const timePart = parts[1].split(':');
+                    eventStartTime = new Date(
+                        parseInt(datePart[0]),
+                        parseInt(datePart[1]) - 1,
+                        parseInt(datePart[2]),
+                        parseInt(timePart[0]),
+                        parseInt(timePart[1]),
+                        parseInt(timePart[2] || 0)
+                    );
+                }
+            }
+        } catch (e) {
+            console.error('Error parsing date:', e, event.startTime);
+            return false;
+        }
+        
+        // Calculate reminder time
+        const reminderTime = new Date(eventStartTime.getTime() - (event.reminderMinutes * 60 * 1000));
+        const now = new Date();
+        
+        // Debug logging (can be removed in production)
+        console.log('Checking reminder:', {
+            eventTitle: event.title,
+            eventStartTime: eventStartTime.toLocaleString(),
+            reminderTime: reminderTime.toLocaleString(),
+            currentTime: now.toLocaleString(),
+            shouldTrigger: now >= reminderTime && now < eventStartTime,
+            timeDiff: now - reminderTime
+        });
+        
+        // Check if reminder time has passed and event hasn't started
+        if (now >= reminderTime && now < eventStartTime) {
+            const message = `REMINDER: ${event.title}\n\n` +
+                          `Event starts at: ${eventStartTime.toLocaleString()}\n` +
+                          `Reminder: ${event.reminderMinutes} minutes before\n` +
+                          (event.description ? `\nNotes: ${event.description}` : '');
+            
+            // Show browser alert
+            alert(message);
+            
+            // Mark reminder as triggered via AJAX
+            const csrftoken = getCookie('csrftoken');
+            
+            fetch(`/event/${event.id}/trigger-reminder/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrftoken,
+                    'Content-Type': 'application/json',
+                },
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('Reminder marked as triggered');
+                    // Optionally reload the page to update the UI
+                    // window.location.reload();
+                } else {
+                    console.error('Failed to mark reminder:', data.message);
+                }
+            })
+            .catch(error => console.error('Error:', error));
+            
+            return true; // Reminder was triggered
+        }
+        return false; // Reminder not yet due
+    }
+
+    // Trigger reminders on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        pendingReminders.forEach(event => {
+            triggerReminder(event);
+        });
+    });
+</script>
+{% endblock %}
+

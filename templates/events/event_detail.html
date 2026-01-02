@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ event.title }} - CRM Event Calendar{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="bi bi-calendar-event"></i> Event Details</h4>
+            </div>
+            <div class="card-body event-details">
+                <h3>{{ event.title }}</h3>
+                
+                <div class="mb-3">
+                    <strong><i class="bi bi-clock"></i> Start:</strong>
+                    {{ event.start_datetime|date:"F d, Y" }} at {{ event.start_datetime|date:"H:i" }}
+                </div>
+                
+                <div class="mb-3">
+                    <strong><i class="bi bi-clock-fill"></i> End:</strong>
+                    {{ event.end_datetime|date:"F d, Y" }} at {{ event.end_datetime|date:"H:i" }}
+                </div>
+                
+                {% if event.description %}
+                <div class="mb-3">
+                    <strong><i class="bi bi-file-text"></i> Description:</strong>
+                    <p>{{ event.description|linebreaks }}</p>
+                </div>
+                {% endif %}
+                
+                <div class="mb-3">
+                    <strong><i class="bi bi-bell"></i> Reminder:</strong>
+                    {{ event.get_reminder_minutes_display }}
+                    {% if event.reminder_triggered %}
+                        <span class="badge bg-success ms-2">Triggered</span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark ms-2">Pending</span>
+                    {% endif %}
+                </div>
+                
+                {% if event.google_event_id %}
+                <div class="mb-3">
+                    <strong><i class="bi bi-google"></i> Google Calendar:</strong>
+                    <span class="badge bg-info">Synced</span>
+                </div>
+                {% endif %}
+                
+                <div class="mb-3">
+                    <strong><i class="bi bi-person"></i> Created by:</strong>
+                    {{ event.created_by.username }}
+                </div>
+                
+                <div class="mb-3">
+                    <strong><i class="bi bi-calendar"></i> Created:</strong>
+                    {{ event.created_at|date:"F d, Y H:i" }}
+                </div>
+                
+                <hr>
+                
+                <div class="d-flex gap-2">
+                    <a href="{% url 'event_update' event.pk %}" class="btn btn-primary">
+                        <i class="bi bi-pencil"></i> Edit Event
+                    </a>
+                    <a href="{% url 'event_delete' event.pk %}" class="btn btn-danger">
+                        <i class="bi bi-trash"></i> Delete Event
+                    </a>
+                    <a href="{% url 'dashboard' %}" class="btn btn-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
